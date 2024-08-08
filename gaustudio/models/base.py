@@ -68,6 +68,34 @@ class BasePointCloud(nn.Module):
             self.num_points = tensor_value.shape[0]
         self.config["attributes"] = list(args.keys())
         
+    def calculate_center(self):
+        if not hasattr(self, '_xyz'):
+            raise ValueError("XYZ coordinates are not loaded. Make sure to load the PLY file and include 'xyz' in the attributes.")
+        
+        # Get the xyz coordinates
+        xyz = self._xyz.cpu().numpy()  # Convert the tensor to a numpy array for easier manipulation
+        
+        # Calculate the minimum and maximum coordinates along each axis
+        min_coords = xyz.min(axis=0)
+        max_coords = xyz.max(axis=0)
+        
+        # Create the bounding box
+        bounding_box = {
+            'min_x': min_coords[0],
+            'min_y': min_coords[1],
+            'min_z': min_coords[2],
+            'max_x': max_coords[0],
+            'max_y': max_coords[1],
+            'max_z': max_coords[2],
+        }
+        
+        center = [
+            (min_coords[0] + max_coords[0]) / 2,
+            (min_coords[1] + max_coords[1]) / 2,
+            (min_coords[2] + max_coords[2]) / 2,
+        ]
+        return center
+    
     def load(self, ply_path: str):
         plydata = PlyData.read(ply_path)  
         self.num_points = plydata['vertex'].count
