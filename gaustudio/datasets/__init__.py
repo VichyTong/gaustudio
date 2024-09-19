@@ -133,6 +133,7 @@ class Camera:
 
     world_view_transform: torch.tensor = None 
     full_proj_transform: torch.tensor = None
+    projection_matrix: torch.tensor = None
     camera_center: torch.tensor = None    
     principal_point_ndc: np.array = np.array([0.5, 0.5])
     
@@ -155,7 +156,7 @@ class Camera:
                                                      principal_point_ndc=self.principal_point_ndc).transpose(0,1)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         
-        if self.image_path is not None:
+        if self.image_path is not None and self.image is None:
             self.image = torch.from_numpy(np.array(Image.open(self.image_path).convert("RGB"))) / 255.0
             self.image_name = os.path.basename(self.image_path).split(".")[0]
             self.image_height, self.image_width, _ = self.image.shape
@@ -233,6 +234,45 @@ class Camera:
         self.image_width, self.image_height = resolution
         return self
     
+    def insideView(self, world_xyz, mask=None):
+        # Use the camera's mask if none is provided
+        if mask is None:
+            mask = torch.ones(self.image_height, self.image_width, device=world_xyz.device)
+
+        # Homogeneous coordinates
+        world_xyz_homogeneous = torch.cat([world_xyz, torch.ones_like(world_xyz[:, :1])], dim=-1)
+        
+        # Transform to clip space
+        clip_space = torch.matmul(world_xyz_homogeneous, self.full_proj_transform)
+
+        # Perspective division to get NDC
+        ndc = clip_space[:, :3] / clip_space[:, 3:4]
+
+        # Convert NDC to pixel coordinates
+        pixel_x = (ndc[:, 0] + 1) * 0.5 * self.image_width
+        pixel_y = (1 + ndc[:, 1]) * 0.5 * self.image_height
+
+        # Check if points are in front of the camera
+        in_front = clip_space[:, 2] > 0
+        
+        # Check if points are inside the image bounds
+        inside_image = (ndc[:, 0] >= -1) & (ndc[:, 0] <= 1) & (ndc[:, 1] >= -1) & (ndc[:, 1] <= 1)
+        
+        # Combine conditions
+        valid_points = in_front & inside_image
+        
+        # For valid points, check if they're inside the mask
+        inside_mask = torch.zeros_like(valid_points, dtype=torch.bool)
+        if valid_points.any():
+            # Only process valid points
+            valid_pixel_x = pixel_x[valid_points].long().clamp(0, self.image_width - 1)
+            valid_pixel_y = pixel_y[valid_points].long().clamp(0, self.image_height - 1)
+
+            # Sample the mask
+            inside_mask[valid_points] = mask[valid_pixel_y, valid_pixel_x].bool()
+
+        return inside_mask
+
     def depth2point(self, depth=None, coordinate='camera'):
         if depth is None:
             depth = self.depth
@@ -308,6 +348,20 @@ class Camera:
         
         return normal.squeeze(0).permute(1, 2, 0)
 
+    def normal2worldnormal(self, normal=None):
+        if normal is None:
+            normal = self.normal
+        if normal is None:
+            raise ValueError("Normal is not available.")
+        normal = normal @ self.extrinsics[:3, :3].inverse().t()
+        return normal
+    
+    def worldnormal2normal(self, normal):
+        if normal is None:
+            raise ValueError("Normal is not available.")
+        normal = normal @ self.extrinsics[:3, :3].t()
+        return normal
+        
 
 def register(name):
     def decorator(cls):
