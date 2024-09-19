@@ -21,6 +21,7 @@ from gaustudio.utils.cameras_utils import JSON_to_camera
 
 app = Flask(__name__)
 CORS(app)
+ROOT_PATH = "../../data"
 
 
 def searchForMaxIteration(folder):
@@ -61,8 +62,9 @@ def fit_plane(points):
     U, S, Vt = np.linalg.svd(A, full_matrices=False)
     plane_params = Vt[-1]
     plane_params /= np.linalg.norm(plane_params[:3])
-    
+
     return plane_params
+
 
 def project_to_plane(point, normal):
     normal = np.array(normal)
@@ -71,10 +73,21 @@ def project_to_plane(point, normal):
     projection = point - d * normal
     return projection
 
+
+@app.route("/all_models", methods=["GET"])
+def all_models():
+    folders = []
+    for root, dirs, files in os.walk(ROOT_PATH):
+        for dir_name in dirs:
+            # Append the full path of each folder
+            folders.append(os.path.join(root, dir_name))
+    return folders
+
+
 @app.route("/load_model", methods=["POST"])
 def load_model():
     model_path = request.json.get("model_path")
-    model_path = f"../../data/{model_path}"
+    model_path = f"{ROOT_PATH}/{model_path}"
     global work_dir
 
     if os.path.isdir(model_path):
@@ -126,7 +139,7 @@ def load_model():
 
     camera_json = camera_data[0]
 
-    return jsonify({"message": f"Model loaded from {model_path}"})
+    return jsonify({"camera": camera_json})
 
 
 @app.route("/adjust_f", methods=["POST"])
@@ -144,9 +157,15 @@ def adjust_position():
     delta_y = request.json.get("delta_y")
     delta_z = request.json.get("delta_z")
 
-    camera_json["position"][0] -= delta_x * axis_x[0] + delta_y * axis_y[0] + delta_z * axis_z[0]
-    camera_json["position"][1] -= delta_x * axis_x[1] + delta_y * axis_y[1] + delta_z * axis_z[1]
-    camera_json["position"][2] -= delta_x * axis_x[2] + delta_y * axis_y[2] + delta_z * axis_z[2]
+    camera_json["position"][0] -= (
+        delta_x * axis_x[0] + delta_y * axis_y[0] + delta_z * axis_z[0]
+    )
+    camera_json["position"][1] -= (
+        delta_x * axis_x[1] + delta_y * axis_y[1] + delta_z * axis_z[1]
+    )
+    camera_json["position"][2] -= (
+        delta_x * axis_x[2] + delta_y * axis_y[2] + delta_z * axis_z[2]
+    )
 
     return jsonify(
         {
@@ -158,30 +177,51 @@ def adjust_position():
 @app.route("/adjust_rotation", methods=["POST"])
 def adjust_rotation():
     alpha = request.json.get("alpha")
-    position = np.array(camera_json['position'])
+    axis = request.json.get("axis", "z")  # Default axis is z if not provided
+
+    position = np.array(camera_json["position"])
     current_rotation_matrix = np.array(camera_json["rotation"])
     object_center = np.array(center)
+
+    # Define the axis of rotation based on the input axis (x, y, or z)
+    if axis == "x":
+        axis_vector = np.array([1, 0, 0])
+    elif axis == "y":
+        axis_vector = np.array([0, 1, 0])
+    else:  # Default to z axis
+        axis_vector = np.array([0, 0, 1])
 
     cos_alpha = np.cos(alpha)
     sin_alpha = np.sin(alpha)
     I = np.eye(3)
-    K = np.array([
-        [0, -axis_z[2], axis_z[1]],
-        [axis_z[2], 0, -axis_z[0]],
-        [-axis_z[1], axis_z[0], 0]
-    ])
+    K = np.array(
+        [
+            [0, -axis_vector[2], axis_vector[1]],
+            [axis_vector[2], 0, -axis_vector[0]],
+            [-axis_vector[1], axis_vector[0], 0],
+        ]
+    )
+
+    # Rodrigues' rotation formula to compute the rotation matrix
     rotation_matrix = I + sin_alpha * K + (1 - cos_alpha) * K @ K
 
+    # Translate position to object center, apply rotation, and translate back
     translated_position = position - object_center
     rotated_position = rotation_matrix @ translated_position
     new_position = rotated_position + object_center
-    
+
+    # Apply the rotation to the current rotation matrix
     new_rotation_matrix = rotation_matrix @ current_rotation_matrix
 
-    camera_json['position'] = new_position.tolist()
+    # Update the camera's position and rotation in the JSON
+    camera_json["position"] = new_position.tolist()
     camera_json["rotation"] = new_rotation_matrix.tolist()
 
-    return jsonify({"message": f"Adjusted the rotation of object by {alpha}"})
+    return jsonify(
+        {
+            "message": f"Adjusted the rotation of object by {alpha} radians around {axis} axis."
+        }
+    )
 
 
 @app.route("/render", methods=["POST"])
@@ -225,4 +265,4 @@ def render():
 
 if __name__ == "__main__":
     init()
-    app.run(host="0.0.0.0", port=10024, debug=True)
+    app.run(host="0.0.0.0", port=10025, debug=True)
