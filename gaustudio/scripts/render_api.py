@@ -185,11 +185,11 @@ def adjust_rotation():
 
     # Define the axis of rotation based on the input axis (x, y, or z)
     if axis == "x":
-        axis_vector = np.array([1, 0, 0])
+        axis_vector = axis_x
     elif axis == "y":
-        axis_vector = np.array([0, 1, 0])
+        axis_vector = axis_y
     else:  # Default to z axis
-        axis_vector = np.array([0, 0, 1])
+        axis_vector = axis_z
 
     cos_alpha = np.cos(alpha)
     sin_alpha = np.sin(alpha)
