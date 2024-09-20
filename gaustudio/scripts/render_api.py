@@ -74,13 +74,14 @@ def project_to_plane(point, normal):
     return projection
 
 
-@app.route("/all_models", methods=["GET"])
+@app.route("/all_models", methods=["GET", "POST"])
 def all_models():
     folders = []
     for root, dirs, files in os.walk(ROOT_PATH):
-        for dir_name in dirs:
-            # Append the full path of each folder
-            folders.append(os.path.join(root, dir_name))
+        if root == ROOT_PATH:
+            for dir_name in dirs:
+                folder_path = os.path.join(root, dir_name).replace("../../data/", "")
+                folders.append(folder_path)
     return folders
 
 
@@ -138,6 +139,9 @@ def load_model():
     axis_y = np.cross(axis_z, axis_x)
 
     camera_json = camera_data[0]
+    # resize to 1024 * 1024
+    camera_json["height"] = 1024
+    camera_json["width"] = 1024
 
     return jsonify({"camera": camera_json})
 
